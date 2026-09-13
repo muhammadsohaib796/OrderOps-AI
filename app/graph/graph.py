@@ -1,7 +1,7 @@
 from langgraph.graph import StateGraph, END
 from app.graph.state import OrderState
 from app.database import SessionLocal
-from app.models import Order, Customer, OrderItem, Product
+from app.models import Order, Customer, OrderItem, Product, NegotiationOffer
 
 
 def fraud_check(state: OrderState) -> OrderState:
@@ -52,10 +52,55 @@ def inventory_check(state: OrderState) -> OrderState:
     return state
 
 
+def find_alternative_product(db, out_of_stock_product: Product) -> Product | None:
+    STOPWORDS = {"limited", "edition", "standard", "the", "a", "of"}
+    target_words = set(out_of_stock_product.name.lower().split()) - STOPWORDS
+
+    candidates = (
+        db.query(Product)
+        .filter(Product.id != out_of_stock_product.id, Product.stock_quantity > 0)
+        .all()
+    )
+
+    for candidate in candidates:
+        candidate_words = set(candidate.name.lower().split()) - STOPWORDS
+        if target_words & candidate_words:
+            return candidate
+    return None
+
+
 def negotiate(state: OrderState) -> OrderState:
     print(f"[negotiate] Offering alternative for order {state['order_id']}")
-    state["alternative_product_id"] = None
+    db = SessionLocal()
+    try:
+        # For now, handle the first out-of-stock item — multi-item negotiation is a later concern
+        original_product_id = state["out_of_stock_items"][0]
+        original_product = db.get(Product, original_product_id)
+
+        alternative = find_alternative_product(db, original_product)
+
+        offer = NegotiationOffer(
+            order_id=state["order_id"],
+            original_product_id=original_product.id,
+            alternative_product_id=alternative.id if alternative else None,
+            discount_percent=10.0,
+            status="offered",
+        )
+        db.add(offer)
+        db.commit()
+
+        if alternative:
+            state["alternative_product_id"] = alternative.id
+            print(f"[negotiate] Offered '{alternative.name}' (10% off) in place of '{original_product.name}'")
+        else:
+            state["alternative_product_id"] = None
+            print(f"[negotiate] No alternative found for '{original_product.name}'")
+    finally:
+        db.close()
     return state
+
+def route_after_negotiate(state: OrderState) -> str:
+    return "await_response" if state["alternative_product_id"] is not None else "finalize"
 
 
 def await_response(state: OrderState) -> OrderState:
@@ -110,7 +155,14 @@ builder.add_conditional_edges(
     },
 )
 
-builder.add_edge("negotiate", "await_response")
+builder.add_conditional_edges(
+    "negotiate",
+    route_after_negotiate,
+    {
+        "await_response": "await_response",
+        "finalize": "finalize",
+    },
+)
 builder.add_edge("await_response", "finalize")
 builder.add_edge("finalize", END)
 
