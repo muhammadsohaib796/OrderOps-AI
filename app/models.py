@@ -57,3 +57,18 @@ class OrderItem(Base):
 
     order = relationship("Order", back_populates="items")
     product = relationship("Product")
+
+
+class NegotiationOffer(Base):
+    __tablename__ = "negotiation_offers"
+
+    id = Column(Integer, primary_key=True, index=True)
+    order_id = Column(Integer, ForeignKey("orders.id"), nullable=False)
+    original_product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
+    alternative_product_id = Column(Integer, ForeignKey("products.id"), nullable=True)
+    discount_percent = Column(Float, nullable=False, default=10.0)
+    status = Column(String, nullable=False, default="offered")  # offered, accepted, declined
+    created_at = Column(DateTime, default=datetime.utcnow)
+    responded_at = Column(DateTime, nullable=True)
+
+    order = relationship("Order")
