@@ -1,7 +1,13 @@
+from langgraph.checkpoint.postgres import PostgresSaver
+import os
+from dotenv import load_dotenv
+
 from langgraph.graph import StateGraph, END
 from app.graph.state import OrderState
 from app.database import SessionLocal
 from app.models import Order, Customer, OrderItem, Product, NegotiationOffer
+
+load_dotenv()
 
 
 def fraud_check(state: OrderState) -> OrderState:
@@ -166,4 +172,12 @@ builder.add_conditional_edges(
 builder.add_edge("await_response", "finalize")
 builder.add_edge("finalize", END)
 
-graph = builder.compile()
+
+
+DATABASE_URL = os.getenv("DATABASE_URL")
+
+checkpointer_cm = PostgresSaver.from_conn_string(DATABASE_URL)
+checkpointer = checkpointer_cm.__enter__()
+checkpointer.setup()
+
+graph = builder.compile(checkpointer=checkpointer, interrupt_before=["await_response"])
