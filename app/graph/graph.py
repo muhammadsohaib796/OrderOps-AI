@@ -1,17 +1,54 @@
 from langgraph.graph import StateGraph, END
 from app.graph.state import OrderState
+from app.database import SessionLocal
+from app.models import Order, Customer, OrderItem, Product
 
 
 def fraud_check(state: OrderState) -> OrderState:
     print(f"[fraud_check] Checking order {state['order_id']}")
-    state["risk_score"] = 0.1
-    state["is_flagged"] = state["risk_score"] > 0.7
+    db = SessionLocal()
+    try:
+        order = db.get(Order, state["order_id"])
+        customer = db.get(Customer, order.customer_id)
+        items = db.query(OrderItem).filter(OrderItem.order_id == order.id).all()
+
+        order_total = sum(
+            item.quantity * db.get(Product, item.product_id).price
+            for item in items
+        )
+
+        risk_score = 0.0
+        if order_total > 100:
+            risk_score += 0.4
+        if not customer.phone:
+            risk_score += 0.3
+        if any(item.quantity > 5 for item in items):
+            risk_score += 0.3
+
+        risk_score = min(risk_score, 1.0)
+
+        state["risk_score"] = risk_score
+        state["is_flagged"] = risk_score > 0.7
+        print(f"[fraud_check] order_total={order_total}, risk_score={risk_score}")
+    finally:
+        db.close()
     return state
 
 
 def inventory_check(state: OrderState) -> OrderState:
     print(f"[inventory_check] Checking stock for order {state['order_id']}")
-    state["out_of_stock_items"] = []
+    db = SessionLocal()
+    try:
+        items = db.query(OrderItem).filter(OrderItem.order_id == state["order_id"]).all()
+        out_of_stock = []
+        for item in items:
+            product = db.get(Product, item.product_id)
+            if product.stock_quantity < item.quantity:
+                out_of_stock.append(product.id)
+        state["out_of_stock_items"] = out_of_stock
+        print(f"[inventory_check] out_of_stock_items={out_of_stock}")
+    finally:
+        db.close()
     return state
 
 

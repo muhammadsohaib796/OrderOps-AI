@@ -5,7 +5,7 @@ initial_state = {
     "customer_id": 1,
     "risk_score": None,
     "is_flagged": False,
-    "out_of_stock_items": [2],  # simulate: item 2 (the hoodie) is out of stock
+    "out_of_stock_items": [],
     "alternative_product_id": None,
     "customer_response": None,
     "final_status": None,
