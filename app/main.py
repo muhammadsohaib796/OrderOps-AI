@@ -4,6 +4,8 @@ from app.database import SessionLocal
 from app.models import Order, NegotiationOffer, OrderStatus
 from datetime import datetime
 
+from app.schemas import OrderCreate
+from app.models import OrderItem
 
 app = FastAPI()
 
@@ -48,3 +50,34 @@ def respond_to_offer(order_id: int, decision: str):
         db.close()
 
     return {"order_id": order_id, "final_status": result["final_status"]}
+
+
+@app.post("/orders")
+def create_order(order_data: OrderCreate):
+    db = SessionLocal()
+    try:
+        new_order = Order(customer_id=order_data.customer_id, status=OrderStatus.pending)
+        db.add(new_order)
+        db.commit()
+        db.refresh(new_order)
+
+        for item in order_data.items:
+            db.add(OrderItem(order_id=new_order.id, product_id=item.product_id, quantity=item.quantity))
+        db.commit()
+
+        config = {"configurable": {"thread_id": str(new_order.id)}}
+        initial_state = {
+            "order_id": new_order.id,
+            "customer_id": new_order.customer_id,
+            "risk_score": None,
+            "is_flagged": False,
+            "out_of_stock_items": [],
+            "alternative_product_id": None,
+            "customer_response": None,
+            "final_status": None,
+        }
+        result = graph.invoke(initial_state, config=config)
+
+        return {"order_id": new_order.id, "graph_result": result}
+    finally:
+        db.close()
