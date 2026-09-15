@@ -76,37 +76,39 @@ def find_alternative_product(db, out_of_stock_product: Product) -> Product | Non
 
 
 def negotiate(state: OrderState) -> OrderState:
-    print(f"[negotiate] Offering alternative for order {state['order_id']}")
+    print(f"[negotiate] Offering alternatives for order {state['order_id']}")
     db = SessionLocal()
     try:
-        # For now, handle the first out-of-stock item — multi-item negotiation is a later concern
-        original_product_id = state["out_of_stock_items"][0]
-        original_product = db.get(Product, original_product_id)
+        alternative_products = {}
+        for original_product_id in state["out_of_stock_items"]:
+            original_product = db.get(Product, original_product_id)
+            alternative = find_alternative_product(db, original_product)
 
-        alternative = find_alternative_product(db, original_product)
+            offer = NegotiationOffer(
+                order_id=state["order_id"],
+                original_product_id=original_product.id,
+                alternative_product_id=alternative.id if alternative else None,
+                discount_percent=10.0,
+                status="offered",
+            )
+            db.add(offer)
 
-        offer = NegotiationOffer(
-            order_id=state["order_id"],
-            original_product_id=original_product.id,
-            alternative_product_id=alternative.id if alternative else None,
-            discount_percent=10.0,
-            status="offered",
-        )
-        db.add(offer)
+            alternative_products[original_product_id] = alternative.id if alternative else None
+            if alternative:
+                print(f"[negotiate] Offered '{alternative.name}' (10% off) in place of '{original_product.name}'")
+            else:
+                print(f"[negotiate] No alternative found for '{original_product.name}'")
+
         db.commit()
-
-        if alternative:
-            state["alternative_product_id"] = alternative.id
-            print(f"[negotiate] Offered '{alternative.name}' (10% off) in place of '{original_product.name}'")
-        else:
-            state["alternative_product_id"] = None
-            print(f"[negotiate] No alternative found for '{original_product.name}'")
+        state["alternative_products"] = alternative_products
     finally:
         db.close()
     return state
 
+
 def route_after_negotiate(state: OrderState) -> str:
-    return "await_response" if state["alternative_product_id"] is not None else "finalize"
+    has_any_alternative = any(v is not None for v in state["alternative_products"].values())
+    return "await_response" if has_any_alternative else "finalize"
 
 
 def await_response(state: OrderState) -> OrderState:

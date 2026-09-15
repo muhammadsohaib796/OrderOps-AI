@@ -28,7 +28,7 @@ def test_negotiation_path():
     print("Create order response:", data)
 
     assert data["graph_result"]["out_of_stock_items"] == [2], "Expected product 2 out of stock"
-    assert data["graph_result"]["alternative_product_id"] is not None, "Expected an alternative to be found"
+    assert data["graph_result"]["alternative_product_id"] is not {}, "Expected an alternative to be found"
     assert data["graph_result"]["final_status"] is None, "Expected graph to be paused, not finished"
 
     order_id = data["order_id"]

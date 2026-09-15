@@ -8,7 +8,7 @@ initial_state = {
     "risk_score": None,
     "is_flagged": False,
     "out_of_stock_items": [],
-    "alternative_product_id": None,
+    "alternative_product_id": {},
     "customer_response": None,
     "final_status": None,
 }
