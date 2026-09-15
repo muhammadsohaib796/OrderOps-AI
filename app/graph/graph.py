@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 from langgraph.graph import StateGraph, END
 from app.graph.state import OrderState
 from app.database import SessionLocal
-from app.models import Order, Customer, OrderItem, Product, NegotiationOffer
+from app.models import Order, Customer, OrderItem, Product, NegotiationOffer, OrderStatus
 
 load_dotenv()
 
@@ -135,6 +135,19 @@ def route_after_inventory(state: OrderState) -> str:
     return "negotiate" if state["out_of_stock_items"] else "fulfill"
 
 
+def flag_for_review(state: OrderState) -> OrderState:
+    print(f"[flag_for_review] Order {state['order_id']} flagged for manual audit (risk_score={state['risk_score']})")
+    db = SessionLocal()
+    try:
+        order = db.get(Order, state["order_id"])
+        order.status = OrderStatus.flagged_for_review
+        db.commit()
+    finally:
+        db.close()
+    state["final_status"] = "flagged_for_review"
+    return state
+
+
 builder = StateGraph(OrderState)
 
 builder.add_node("fraud_check", fraud_check)
@@ -142,6 +155,7 @@ builder.add_node("inventory_check", inventory_check)
 builder.add_node("negotiate", negotiate)
 builder.add_node("await_response", await_response)
 builder.add_node("finalize", finalize)
+builder.add_node("flag_for_review", flag_for_review)
 
 builder.set_entry_point("fraud_check")
 
@@ -149,7 +163,7 @@ builder.add_conditional_edges(
     "fraud_check",
     route_after_fraud,
     {
-        "flagged": END,
+        "flagged": "flag_for_review",
         "continue": "inventory_check",
     },
 )
@@ -173,6 +187,7 @@ builder.add_conditional_edges(
 )
 builder.add_edge("await_response", "finalize")
 builder.add_edge("finalize", END)
+builder.add_edge("flag_for_review", END)
 
 
 
