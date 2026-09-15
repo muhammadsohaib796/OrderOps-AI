@@ -7,6 +7,8 @@ from app.graph.state import OrderState
 from app.database import SessionLocal
 from app.models import Order, Customer, OrderItem, Product, NegotiationOffer, OrderStatus
 
+from app.services.email import send_negotiation_email
+
 load_dotenv()
 
 
@@ -80,6 +82,11 @@ def negotiate(state: OrderState) -> OrderState:
     db = SessionLocal()
     try:
         alternative_products = {}
+        email_offers = []
+
+        order = db.get(Order, state["order_id"])
+        customer = db.get(Customer, order.customer_id)
+
         for original_product_id in state["out_of_stock_items"]:
             original_product = db.get(Product, original_product_id)
             alternative = find_alternative_product(db, original_product)
@@ -94,6 +101,13 @@ def negotiate(state: OrderState) -> OrderState:
             db.add(offer)
 
             alternative_products[original_product_id] = alternative.id if alternative else None
+            email_offers.append({
+                "order_id": state["order_id"],
+                "original_name": original_product.name,
+                "alternative_name": alternative.name if alternative else None,
+                "discount_percent": 10.0,
+            })
+
             if alternative:
                 print(f"[negotiate] Offered '{alternative.name}' (10% off) in place of '{original_product.name}'")
             else:
@@ -101,6 +115,9 @@ def negotiate(state: OrderState) -> OrderState:
 
         db.commit()
         state["alternative_products"] = alternative_products
+
+        if any(o["alternative_name"] for o in email_offers):
+            send_negotiation_email(customer.email, customer.name, email_offers)
     finally:
         db.close()
     return state
