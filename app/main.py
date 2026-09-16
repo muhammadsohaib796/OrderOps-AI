@@ -4,8 +4,10 @@ from app.database import SessionLocal
 from app.models import Order, OrderItem, OrderStatus, Customer, Product, NegotiationOffer
 from datetime import datetime
 
-from app.schemas import OrderCreate
+from app.schemas import OrderCreate, CustomerCreate
 from app.models import OrderItem
+
+from fastapi.staticfiles import StaticFiles
 
 app = FastAPI()
 
@@ -110,6 +112,7 @@ def list_orders():
             {
                 "id": o.id,
                 "customer_id": o.customer_id,
+                "customer_name": db.get(Customer, o.customer_id).name,
                 "status": o.status.value,
                 "risk_score": o.risk_score,
                 "created_at": o.created_at.isoformat() if o.created_at else None,
@@ -134,11 +137,17 @@ def get_order_detail(order_id: int):
         return {
             "id": order.id,
             "customer_id": order.customer_id,
+            "customer_name": db.get(Customer, order.customer_id).name,
             "status": order.status.value,
             "risk_score": order.risk_score,
             "created_at": order.created_at.isoformat() if order.created_at else None,
             "items": [
-                {"product_id": i.product_id, "quantity": i.quantity}
+                {
+                    "product_id": i.product_id,
+                    "quantity": i.quantity,
+                    "name": db.get(Product, i.product_id).name,
+                    "price": db.get(Product, i.product_id).price,
+                }
                 for i in items
             ],
             "negotiation_offers": [
@@ -155,3 +164,27 @@ def get_order_detail(order_id: int):
         }
     finally:
         db.close()
+
+@app.post("/customers")
+def create_customer(customer_data: CustomerCreate):
+    db = SessionLocal()
+    try:
+        existing = db.query(Customer).filter(Customer.email == customer_data.email).first()
+        if existing:
+            raise HTTPException(status_code=400, detail=f"Customer with email {customer_data.email} already exists")
+
+        new_customer = Customer(
+            name=customer_data.name,
+            email=customer_data.email,
+            phone=customer_data.phone,
+        )
+        db.add(new_customer)
+        db.commit()
+        db.refresh(new_customer)
+
+        return {"id": new_customer.id, "name": new_customer.name, "email": new_customer.email}
+    finally:
+        db.close()
+
+
+app.mount("/dashboard", StaticFiles(directory="app/static", html=True), name="dashboard")
