@@ -99,3 +99,59 @@ def create_order(order_data: OrderCreate):
         return {"order_id": new_order.id, "graph_result": result}
     finally:
         db.close()
+
+
+@app.get("/orders")
+def list_orders():
+    db = SessionLocal()
+    try:
+        orders = db.query(Order).order_by(Order.id.desc()).all()
+        return [
+            {
+                "id": o.id,
+                "customer_id": o.customer_id,
+                "status": o.status.value,
+                "risk_score": o.risk_score,
+                "created_at": o.created_at.isoformat() if o.created_at else None,
+            }
+            for o in orders
+        ]
+    finally:
+        db.close()
+
+
+@app.get("/orders/{order_id}")
+def get_order_detail(order_id: int):
+    db = SessionLocal()
+    try:
+        order = db.get(Order, order_id)
+        if not order:
+            raise HTTPException(status_code=404, detail=f"Order {order_id} not found")
+
+        items = db.query(OrderItem).filter(OrderItem.order_id == order_id).all()
+        offers = db.query(NegotiationOffer).filter(NegotiationOffer.order_id == order_id).all()
+
+        return {
+            "id": order.id,
+            "customer_id": order.customer_id,
+            "status": order.status.value,
+            "risk_score": order.risk_score,
+            "created_at": order.created_at.isoformat() if order.created_at else None,
+            "items": [
+                {"product_id": i.product_id, "quantity": i.quantity}
+                for i in items
+            ],
+            "negotiation_offers": [
+                {
+                    "original_product_id": off.original_product_id,
+                    "alternative_product_id": off.alternative_product_id,
+                    "discount_percent": off.discount_percent,
+                    "status": off.status,
+                    "created_at": off.created_at.isoformat() if off.created_at else None,
+                    "responded_at": off.responded_at.isoformat() if off.responded_at else None,
+                }
+                for off in offers
+            ],
+        }
+    finally:
+        db.close()

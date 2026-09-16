@@ -35,6 +35,9 @@ def fraud_check(state: OrderState) -> OrderState:
 
         risk_score = min(risk_score, 1.0)
 
+        order.risk_score = risk_score
+        db.commit()
+
         state["risk_score"] = risk_score
         state["is_flagged"] = risk_score > 0.7
         print(f"[fraud_check] order_total={order_total}, risk_score={risk_score}")
