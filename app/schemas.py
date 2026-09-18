@@ -17,3 +17,7 @@ class CustomerCreate(BaseModel):
     email: str
     phone: str | None = None
 
+
+class DemoOrderCreate(BaseModel):
+    name: str
+    email: str

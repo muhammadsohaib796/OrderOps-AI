@@ -4,7 +4,7 @@ from app.database import SessionLocal
 from app.models import Order, OrderItem, OrderStatus, Customer, Product, NegotiationOffer
 from datetime import datetime
 
-from app.schemas import OrderCreate, CustomerCreate
+from app.schemas import OrderCreate, CustomerCreate, DemoOrderCreate
 from app.models import OrderItem
 
 from fastapi.staticfiles import StaticFiles
@@ -155,6 +155,11 @@ def get_order_detail(order_id: int):
                     "original_product_id": off.original_product_id,
                     "alternative_product_id": off.alternative_product_id,
                     "discount_percent": off.discount_percent,
+                    "alternative_product_name": (
+                        db.get(Product, off.alternative_product_id).name
+                        if off.alternative_product_id else None
+                    ),
+                    "discount_percent": off.discount_percent,
                     "status": off.status,
                     "created_at": off.created_at.isoformat() if off.created_at else None,
                     "responded_at": off.responded_at.isoformat() if off.responded_at else None,
@@ -185,6 +190,58 @@ def create_customer(customer_data: CustomerCreate):
         return {"id": new_customer.id, "name": new_customer.name, "email": new_customer.email}
     finally:
         db.close()
+
+
+
+
+@app.post("/demo-order")
+def create_demo_order(demo_data: DemoOrderCreate):
+    """
+    One-click demo: find-or-create a customer, then place an order for the
+    Limited Edition Hoodie (always out of stock in seed data), guaranteeing
+    the full negotiation + email flow triggers.
+    """
+    db = SessionLocal()
+    try:
+        customer = db.query(Customer).filter(Customer.email == demo_data.email).first()
+        if not customer:
+            customer = Customer(name=demo_data.name, email=demo_data.email, phone=None)
+            db.add(customer)
+            db.commit()
+            db.refresh(customer)
+
+        DEMO_PRODUCT_ID = 2  # Limited Edition Hoodie — kept permanently out of stock for demos
+
+        new_order = Order(customer_id=customer.id, status=OrderStatus.pending)
+        db.add(new_order)
+        db.commit()
+        db.refresh(new_order)
+
+        db.add(OrderItem(order_id=new_order.id, product_id=DEMO_PRODUCT_ID, quantity=1))
+        db.commit()
+
+        config = {"configurable": {"thread_id": str(new_order.id)}}
+        initial_state = {
+            "order_id": new_order.id,
+            "customer_id": new_order.customer_id,
+            "risk_score": None,
+            "is_flagged": False,
+            "out_of_stock_items": [],
+            "alternative_products": {},
+            "customer_response": None,
+            "final_status": None,
+        }
+        result = graph.invoke(initial_state, config=config)
+
+        return {
+            "order_id": new_order.id,
+            "customer_id": customer.id,
+            "email_sent_to": demo_data.email,
+            "graph_result": result,
+        }
+    finally:
+        db.close()
+
 
 
 app.mount("/dashboard", StaticFiles(directory="app/static", html=True), name="dashboard")
