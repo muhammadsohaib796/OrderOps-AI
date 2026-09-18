@@ -7,11 +7,16 @@ from datetime import datetime
 from app.schemas import OrderCreate, CustomerCreate, DemoOrderCreate
 from app.models import OrderItem
 
+from fastapi.responses import FileResponse, RedirectResponse    
 from fastapi.staticfiles import StaticFiles
 
 app = FastAPI()
 
 @app.get("/")
+def root():
+    return RedirectResponse(url="/dashboard")
+
+@app.get("/health")
 def health_check():
     return {"status": "OrderOps AI is running"}
 
