@@ -315,6 +315,37 @@
     .kv { grid-template-columns: 110px 1fr; }
     .hero { padding: 24px; }
   }
+
+  .demo-btn {
+    padding: 7px 14px; border-radius: 10px; font-size: 12.5px; font-weight: 600;
+    border: none; background: linear-gradient(135deg, #7c3aed, #6366f1); color: white;
+    cursor: pointer; transition: transform .12s ease, box-shadow .12s ease;
+  }
+  .demo-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 14px rgba(99,102,241,.4); }
+  .demo-modal-backdrop {
+    position: fixed; inset: 0; background: rgba(0,0,0,.5); display: none;
+    align-items: center; justify-content: center; z-index: 100;
+  }
+  .demo-modal-backdrop.open { display: flex; }
+  .demo-modal {
+    background: white; border-radius: 16px; padding: 28px; width: 380px; max-width: 90vw;
+  }
+  .demo-modal h3 { margin: 0 0 6px; font-size: 18px; }
+  .demo-modal p { margin: 0 0 18px; font-size: 13px; color: var(--text-muted); line-height: 1.5; }
+  .demo-modal input {
+    width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border);
+    margin-bottom: 12px; font-size: 13.5px; font-family: inherit; box-sizing: border-box;
+  }
+  .demo-modal-actions { display: flex; gap: 10px; margin-top: 6px; }
+  .demo-modal-actions button {
+    flex: 1; padding: 10px; border-radius: 10px; font-size: 13px; font-weight: 600;
+    cursor: pointer; border: none;
+  }
+  .demo-submit { background: var(--accent); color: white; }
+  .demo-cancel { background: var(--border); color: var(--text); }
+  .demo-status { font-size: 12.5px; margin-top: 10px; min-height: 18px; }
+  .demo-status.success { color: #16a34a; }
+  .demo-status.error { color: #dc2626; }
 </style>
 </head>
 <body>
@@ -381,6 +412,7 @@
   <div class="toolbar">
     <div class="tabs" id="tabs"></div>
     <div class="toolbar-right">
+      <button class="demo-btn" id="demoBtn">🎯 Try Live Demo</button>
       <input type="text" id="searchInput" class="search-input" placeholder="Search order or customer ID…" />
       <span class="count" id="rowCount"></span>
       <button class="refresh-btn" id="refreshBtn">↻ Refresh</button>
@@ -416,7 +448,23 @@
   <div class="panel-body" id="panelBody"></div>
 </aside>
 
+<!-- Demo modal -->
+<div class="demo-modal-backdrop" id="demoBackdrop">
+  <div class="demo-modal">
+    <h3>Try the live demo</h3>
+    <p>This creates a real order for an out-of-stock item, triggers the fraud check, inventory check, and negotiation — and sends a real email to the address below with accept/decline links.</p>
+    <input type="text" id="demoName" placeholder="Your name" />
+    <input type="email" id="demoEmail" placeholder="Your email (real inbox)" />
+    <div class="demo-modal-actions">
+      <button class="demo-cancel" id="demoCancel">Cancel</button>
+      <button class="demo-submit" id="demoSubmit">Create Order</button>
+    </div>
+    <div class="demo-status" id="demoStatus"></div>
+  </div>
+</div>
+
 <script>
+
 /* ================= Config ================= */
 const API_BASE_URL = ""; // same-origin: works locally and after deploy with no changes, since FastAPI serves this file itself
 const USE_DEMO_ON_FAILURE = true; // fall back to demo data if backend is unreachable
@@ -655,7 +703,7 @@ function filteredOrders() {
   let rows = statusFilter === "all" ? [...orders] : orders.filter(o => o.status === statusFilter);
   const q = searchQuery.trim().toLowerCase();
   if (q) {
-    rows = rows.filter(o =>
+    rows = rows.filter(o => 
       String(o.id).toLowerCase().includes(q) ||
       String(o.customer_id).toLowerCase().includes(q)
     );
@@ -695,7 +743,7 @@ function renderTable() {
 }
 
 function renderDetail(id, detail) {
-  const order = orders.find(o => o.id === id) || {};
+  const order = orders.find(o => String(o.id) === String(id)) || {};
   const items = detail.items || [];
   const offers = detail.negotiation_offers || detail.offers || detail.negotiations || [];
 
@@ -706,12 +754,12 @@ function renderDetail(id, detail) {
     </div>`).join("")
     : `<div class="muted-note">No items on this order.</div>`;
 
-  const offersHTML = offers.length ? offers.map(of => `
+   const offersHTML = offers.length ? offers.map(of => `
     <div class="offer-card">
       <div class="offer-route">
-        <span class="mono">${esc(of.original_product_id)}</span>
+        <span>${esc(of.original_product_name ?? of.original_product_id)}</span>
         <span class="arrow-sym">→</span>
-        <span class="mono">${esc(of.alternative_product_id)}</span>
+        <span>${esc(of.alternative_product_name ?? of.alternative_product_id ?? "no match found")}</span>
         <span class="disc">−${esc(of.discount_percent)}%</span>
       </div>
       <div class="offer-meta">
@@ -727,7 +775,8 @@ function renderDetail(id, detail) {
       <h3>Order</h3>
       <dl class="kv">
         <dt>ID</dt><dd class="mono">${esc(id)}</dd>
-        <dt>Customer</dt><dd>${esc(detail.customer_name ?? order.customer_id ?? detail.customer_id ?? "—")}</dd>        <dt>Status</dt><dd>${badge(order.status ?? detail.status ?? "unknown")}</dd>
+        <dt>Customer</dt><dd>${esc(detail.customer_name ?? order.customer_id ?? detail.customer_id ?? "—")}</dd>
+        <dt>Status</dt><dd>${badge(order.status ?? detail.status ?? "unknown")}</dd>
         <dt>Risk score</dt><dd>${riskCell(order.risk_score ?? detail.risk_score)}</dd>
         <dt>Created</dt><dd>${fmtDate(order.created_at ?? detail.created_at)}</dd>
       </dl>
@@ -785,6 +834,55 @@ $("#retryBtn").addEventListener("click", loadOrders);
 $("#panelClose").addEventListener("click", closePanel);
 $("#overlay").addEventListener("click", closePanel);
 document.addEventListener("keydown", e => { if (e.key === "Escape") closePanel(); });
+
+$("#demoBtn").addEventListener("click", () => {
+  $("#demoBackdrop").classList.add("open");
+});
+$("#demoCancel").addEventListener("click", () => {
+  $("#demoBackdrop").classList.remove("open");
+  $("#demoStatus").textContent = "";
+});
+$("#demoBackdrop").addEventListener("click", (e) => {
+  if (e.target.id === "demoBackdrop") $("#demoBackdrop").classList.remove("open");
+});
+
+$("#demoSubmit").addEventListener("click", async () => {
+  const name = $("#demoName").value.trim();
+  const email = $("#demoEmail").value.trim();
+  const statusEl = $("#demoStatus");
+
+  if (!name || !email) {
+    statusEl.textContent = "Please fill in both fields.";
+    statusEl.className = "demo-status error";
+    return;
+  }
+
+  statusEl.textContent = "Creating order…";
+  statusEl.className = "demo-status";
+
+  try {
+    const res = await fetch(API_BASE_URL + "/demo-order", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, email }),
+    });
+    if (!res.ok) throw new Error("Request failed");
+    const data = await res.json();
+
+    statusEl.textContent = `Order #${data.order_id} created — check ${email} for the negotiation email!`;
+    statusEl.className = "demo-status success";
+
+    await loadOrders();
+    setTimeout(() => {
+      $("#demoBackdrop").classList.remove("open");
+      statusEl.textContent = "";
+      loadOrderDetail(data.order_id);
+    }, 2500);
+  } catch (err) {
+    statusEl.textContent = "Something went wrong — check the server is running.";
+    statusEl.className = "demo-status error";
+  }
+});
 
 let searchDebounce;
 $("#searchInput").addEventListener("input", (e) => {
