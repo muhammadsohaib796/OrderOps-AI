@@ -24,7 +24,7 @@ def health_check():
 from fastapi.responses import HTMLResponse
 
 @app.get("/respond")
-def respond_to_offer(order_id: int, decision: str):
+def respond_to_offer(order_id: int, decision: str): 
     if decision not in ("accept", "decline"):
         raise HTTPException(status_code=400, detail="decision must be 'accept' or 'decline'")
 
@@ -309,6 +309,24 @@ def create_demo_order(demo_data: DemoOrderCreate):
     finally:
         db.close()
 
+@app.get("/products")
+def list_products():
+    db = SessionLocal()
+    try:
+        products = db.query(Product).all()
+        return [
+            {
+                "id": p.id,
+                "name": p.name,
+                "price": p.price,
+                "stock_quantity": p.stock_quantity,
+            }
+            for p in products
+        ]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch products: {str(e)}")
+    finally:
+        db.close()
 
 @app.get("/customers")
 def list_customers():
@@ -323,6 +341,8 @@ def list_customers():
             }
             for c in customers
         ]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch customers: {str(e)}")
     finally:
         db.close()
 
