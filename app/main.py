@@ -21,6 +21,8 @@ def health_check():
     return {"status": "OrderOps AI is running"}
 
 
+from fastapi.responses import HTMLResponse
+
 @app.get("/respond")
 def respond_to_offer(order_id: int, decision: str):
     if decision not in ("accept", "decline"):
@@ -60,7 +62,48 @@ def respond_to_offer(order_id: int, decision: str):
     finally:
         db.close()
 
-    return {"order_id": order_id, "final_status": result["final_status"]}
+    if decision == "accept":
+        heading = "You're all set! ✅"
+        message = f"We've updated order #{order_id} with the alternative item. It's on its way."
+    else:
+        heading = "Refund confirmed"
+        message = f"Order #{order_id} has been refunded. No further action needed."
+
+    html_content = f"""
+    <html>
+    <head>
+        <title>OrderOps AI — Response Received</title>
+        <style>
+            body {{
+                font-family: -apple-system, Inter, sans-serif;
+                background: #f1f2f6;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                height: 100vh;
+                margin: 0;
+            }}
+            .card {{
+                background: white;
+                padding: 40px;
+                border-radius: 16px;
+                box-shadow: 0 8px 24px rgba(15,23,42,.08);
+                text-align: center;
+                max-width: 400px;
+            }}
+            h1 {{ font-size: 22px; margin-bottom: 12px; color: #0f172a; }}
+            p {{ color: #64748b; font-size: 14px; line-height: 1.5; }}
+        </style>
+    </head>
+    <body>
+        <div class="card">
+            <h1>{heading}</h1>
+            <p>{message}</p>
+        </div>
+    </body>
+    </html>
+    """
+    return HTMLResponse(content=html_content)
 
 
 @app.post("/orders")
