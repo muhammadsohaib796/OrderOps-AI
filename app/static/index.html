@@ -332,9 +332,11 @@
   }
   .demo-modal h3 { margin: 0 0 6px; font-size: 18px; }
   .demo-modal p { margin: 0 0 18px; font-size: 13px; color: var(--text-muted); line-height: 1.5; }
-  .demo-modal input {
+  .demo-modal input,
+  .demo-modal select {
     width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border);
     margin-bottom: 12px; font-size: 13.5px; font-family: inherit; box-sizing: border-box;
+    background: var(--surface); color: var(--text);
   }
   .demo-modal-actions { display: flex; gap: 10px; margin-top: 6px; }
   .demo-modal-actions button {
@@ -455,6 +457,10 @@
     <p>This creates a real order for an out-of-stock item, triggers the fraud check, inventory check, and negotiation — and sends a real email to the address below with accept/decline links.</p>
     <input type="text" id="demoName" placeholder="Your name" />
     <input type="email" id="demoEmail" placeholder="Your email (real inbox)" />
+    <input type="tel" id="demoPhone" placeholder="Phone (optional)" />
+    <select id="demoProduct">
+      <option value="">Use default demo product (out of stock)</option>
+    </select>
     <div class="demo-modal-actions">
       <button class="demo-cancel" id="demoCancel">Cancel</button>
       <button class="demo-submit" id="demoSubmit">Create Order</button>
@@ -835,9 +841,28 @@ $("#panelClose").addEventListener("click", closePanel);
 $("#overlay").addEventListener("click", closePanel);
 document.addEventListener("keydown", e => { if (e.key === "Escape") closePanel(); });
 
-$("#demoBtn").addEventListener("click", () => {
+$("#demoBtn").addEventListener("click", async () => {
   $("#demoBackdrop").classList.add("open");
+
+  // Populate the product dropdown each time the modal opens
+  const productSelect = $("#demoProduct");
+  productSelect.innerHTML = `<option value="">Use default demo product (out of stock)</option>`;
+  try {
+    const res = await fetch(API_BASE_URL + "/products");
+    const products = await res.json();
+    products.forEach(p => {
+      const opt = document.createElement("option");
+      opt.value = p.id;
+      const stockLabel = p.stock_quantity > 0 ? "in stock" : "out of stock";
+      opt.textContent = `${p.name} — $${p.price} (${stockLabel})`;
+      productSelect.appendChild(opt);
+    });
+  } catch (err) {
+    // If this fails, the dropdown just stays on the default option — demo still works
+    console.error("Could not load products for demo dropdown:", err);
+  }
 });
+
 $("#demoCancel").addEventListener("click", () => {
   $("#demoBackdrop").classList.remove("open");
   $("#demoStatus").textContent = "";
@@ -849,6 +874,8 @@ $("#demoBackdrop").addEventListener("click", (e) => {
 $("#demoSubmit").addEventListener("click", async () => {
   const name = $("#demoName").value.trim();
   const email = $("#demoEmail").value.trim();
+  const phone = $("#demoPhone").value.trim();
+  const productId = $("#demoProduct").value;
   const statusEl = $("#demoStatus");
 
   if (!name || !email) {
@@ -861,10 +888,14 @@ $("#demoSubmit").addEventListener("click", async () => {
   statusEl.className = "demo-status";
 
   try {
+    const payload = { name, email };
+    if (phone) payload.phone = phone;
+    if (productId) payload.product_id = parseInt(productId, 10);
+
     const res = await fetch(API_BASE_URL + "/demo-order", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, email }),
+      body: JSON.stringify(payload),
     });
     if (!res.ok) throw new Error("Request failed");
     const data = await res.json();
