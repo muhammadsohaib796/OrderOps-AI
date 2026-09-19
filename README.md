@@ -1,344 +1,117 @@
-# 🤖 OrderOps AI
+# OrderOps AI — Autonomous Order Triage & Resolution Agent
 
-## 🚀 Autonomous Order Triage & Resolution Agent
+An e-commerce backend agent that automatically handles out-of-stock situations after checkout. Instead of auto-cancelling an order when an item is unavailable, the agent checks inventory, negotiates an alternative product with the customer by email, and falls back to a refund if the customer doesn't accept — all orchestrated as a LangGraph state machine with real pause/resume.
 
-OrderOps AI is an AI powered order recovery system that helps recover potentially lost e commerce sales when an ordered product is out of stock.
+Built as a learning/portfolio project to practice production-style backend architecture: FastAPI, LangGraph, SQLAlchemy, Alembic, and real third-party integrations (Postgres, email).
 
-The system automatically processes orders, checks fraud risk and inventory, finds an available alternative product, creates a negotiation offer, and sends the customer an email with accept or decline options.
+**Live demo:** https://order-ops-ai.vercel.app/
 
-The workflow is orchestrated with LangGraph and can pause while waiting for the customer's response, then resume later and update the order accordingly.
+---
 
-Built as a learning and portfolio project based on a Business Requirements Document, focusing on LangGraph stateful workflows, FastAPI, PostgreSQL, and transactional email integration.
+## How it works
 
-## ✨ What It Does
+1. An order comes in via `POST /orders` (or the one-click demo flow — see below).
+2. A LangGraph state machine runs:
+   - **fraud_check** — rule-based risk scoring. Order value over $100 adds risk, no phone number on file adds risk, quantity over 5 adds risk. If the combined score crosses a threshold, the order is flagged for manual review and the graph ends there — it never reaches negotiation.
+   - **inventory_check** — checks stock for every item in the order.
+   - **negotiate** — for any out-of-stock item(s), finds an alternative product via keyword matching against product names and emails the customer a bundled offer (all out-of-stock items in one email) with **Accept** / **Decline** links per item.
+   - **await_response** — the graph genuinely pauses here using a Postgres-backed LangGraph checkpointer (`PostgresSaver`), keyed by `thread_id = order_id`. This is a real interrupt/resume, not polling — the process can restart and the paused state survives, because it's persisted in Postgres, not memory.
+   - **finalize** — updates the order status based on the customer's decision: accepted offers move to `fulfilled`/`updated`, declines move to `refunded`.
+3. Every order and its current state is visible on a live dashboard at `/dashboard`.
 
-### 📦 1. Order Intake
+## Project structure
 
-A customer order is submitted through the FastAPI backend.
-
-The system creates the order and its items in PostgreSQL before starting the processing workflow.
-
-### 🛡️ 2. Fraud Risk Check
-
-Each order receives a rule based risk score based on factors such as:
-
-• 💰 Order value
-
-• 📞 Missing customer contact information
-
-• 📦 Unusually large item quantities
-
-High risk orders can be flagged for review instead of being automatically processed.
-
-### 📊 3. Inventory Validation
-
-The system checks the stock quantity of products included in the order.
-
-If all products are available, the order can proceed toward fulfillment without negotiation.
-
-### 🔄 4. Alternative Product Discovery
-
-If a product is out of stock, the system searches available products for a similar in stock alternative.
-
-The alternative product is then used to create a negotiation offer.
-
-### 💬 5. Customer Negotiation
-
-The system creates a negotiation offer with a discount and sends the customer an email through Brevo.
-
-The email contains options for the customer to accept or decline the proposed alternative.
-
-### ⏸️ 6. Stateful Pause & Resume
-
-When customer input is required, the LangGraph workflow pauses.
-
-The graph state is persisted using a PostgreSQL checkpointer.
-
-When the customer responds, the application resumes the existing workflow using the order ID as the LangGraph thread ID.
-
-The order can then be updated or refunded depending on the customer's decision.
-
-## 🏗️ Architecture
-
-```text
-👤 Customer Order
-        │
-        ▼
-    ⚡ FastAPI
-        │
-        ▼
-   🧠 LangGraph
-        │
-        ├── 🛡️ Fraud Check
-        │
-        ├── 📦 Inventory Check
-        │
-        ├── 🔎 Find Alternative
-        │
-        ├── 📝 Create Negotiation Offer
-        │
-        ├── 📧 Send Customer Email
-        │
-        └── ⏸️ Await Customer Response
-                    │
-                    ▼
-          👤 Customer Accepts / Declines
-                    │
-                    ▼
-            🔄 Resume LangGraph
-                    │
-                    ▼
-              💾 Update Order
-
-
-### 🛠️ Tech Stack 
-| Technology                 | Purpose                         |
-| -------------------------- | ------------------------------- |
-| 🐍 Python                  | Core programming language       |
-| ⚡ FastAPI                  | Backend API                     |
-| 🧠 LangGraph               | Stateful workflow orchestration |
-| 🗄️ PostgreSQL             | Application database            |
-| ☁️ Neon                    | PostgreSQL hosting              |
-| 🔗 SQLAlchemy              | ORM and database operations     |
-| 🔄 Alembic                 | Database migrations             |
-| ✅ Pydantic                 | Request validation              |
-| 📧 Brevo                   | Transactional email             |
-| 🌐 HTML / CSS / JavaScript | Operations dashboard            |
-
-
-### 📁 Project Structure
+```
 app/
-├── main.py
-├── database.py
-├── models.py
-├── schemas.py
-│
+├── main.py            # FastAPI app, all routes
+├── database.py        # SQLAlchemy engine/session setup
+├── models.py           # Customer, Product, Order, OrderItem, NegotiationOffer
+├── schemas.py          # Pydantic request/response models
 ├── graph/
-│   ├── state.py
-│   └── graph.py
-│
+│   ├── state.py         # LangGraph state schema
+│   └── graph.py          # Node definitions + graph wiring
 ├── services/
-│   └── email.py
-│
+│   └── email.py          # Brevo email sending (negotiation offers)
 └── static/
-    └── index.html
-
-alembic/
-    Database migrations
-
-scripts/
-├── seed.py
-├── test_graph.py
-└── test_e2e.py
-
-.env.example
-requirements.txt
-README.md
-
-
-###🔌 API Endpoints
-
-| Method  | Endpoint     | Purpose                         |
-| ------- | ------------ | ------------------------------- |
-| 📥 POST | `/orders`    | Create and process an order     |
-| 📋 GET  | `/orders`    | List existing orders            |
-| 💬 GET  | `/respond`   | Accept or decline a negotiation |
-| 📊 GET  | `/dashboard` | Open the operations dashboard   |
-| 📚 GET  | `/docs`      | Open FastAPI documentation      |
-
-
-🚀 Running Locally
-1️⃣ Clone the repository
-git clone <your repository URL>
-cd OrderOps AI
-
-2️⃣ Create a virtual environment
-Windows:
-python -m venv venv
-venv\Scripts\activate
-
-3️⃣ Install dependencies
-pip install -r requirements.txt
-4️⃣ Configure environment variables
-
-Create a .env file based on .env.example.
-
-Example:
-
-DATABASE_URL=your_postgresql_connection_string
-
-BREVO_API_KEY=your_brevo_api_key
-BREVO_SENDER_EMAIL=your_verified_sender_email
-BREVO_SENDER_NAME=OrderOps AI
-
-⚠️ Never commit your .env file or API keys to GitHub.
-
-5️⃣ Run database migrations
-alembic upgrade head
-6️⃣ Seed sample data
-python -m scripts.seed
-7️⃣ Start the FastAPI server
-uvicorn app.main:app --reload
-
-Then open:
-
-📚 API Documentation
-
-http://127.0.0.1:8000/docs
-
-📊 Operations Dashboard
-
-http://127.0.0.1:8000/dashboard
-🎯 Live Demo
-
-The dashboard includes a Try Live Demo option.
-
-The demo creates a test order containing an intentionally unavailable product and starts the complete recovery workflow.
-
-📦 Create Order
-       ↓
-🛡️ Fraud Check
-       ↓
-📊 Inventory Check
-       ↓
-⚠️ Detect Out of Stock
-       ↓
-🔎 Find Alternative
-       ↓
-📝 Create Offer
-       ↓
-📧 Send Email
-       ↓
-⏸️ Wait for Customer
-       ↓
-✅ Accept / ❌ Decline
-       ↓
-🔄 Resume Workflow
-       ↓
-💾 Update Order
-
-⚠️ Note: The demo sends a real transactional email to the email address entered during testing.
-🧪 Testing
-
-Run the end to end tests with:
-
-python scripts/test_e2e.py
-✅ Happy Path
-
-An in stock product is ordered and the system processes it without negotiation.
-
-🔄 Negotiation Path
-
-An out of stock product is ordered, an alternative is found, the workflow pauses, and the customer response resumes the workflow.
-
-🧠 LangGraph Workflow
-
-The workflow uses a StateGraph to coordinate the order processing process.
-
-The graph maintains state such as:
-
-order_id
-customer_id
-risk_score
-is_flagged
-out_of_stock_items
-alternative_product_id
-customer_response
-final_status
-
-The order ID is also used as the LangGraph thread_id, allowing the application to resume the correct workflow when the customer responds later.
-
-🗄️ Database
-
-PostgreSQL is used for application data and LangGraph checkpoint persistence.
-
-The application uses:
-
-• 🔗 SQLAlchemy ORM for database operations
-
-• 🔄 Alembic for database migrations
-
-• ☁️ Neon PostgreSQL for cloud database hosting
-
-Main entities include:
-
-👤 Customer
-📦 Product
-🛒 Order
-📋 OrderItem
-💬 NegotiationOffer
-📧 Email Integration
-
-OrderOps AI uses Brevo for transactional email delivery.
-
-The application sends negotiation emails containing the proposed alternative product and customer response options.
-
-For local development, a verified sender email can be used without purchasing a custom domain.
-
-⚠️ Known Limitations
-
-This is a learning and portfolio project and is not intended to be used as a production e commerce system.
-
-Current limitations include:
-
-• 🔐 No authentication or authorization
-• 🔗 Customer response links are not protected by authentication or secure tokens
-• ⚠️ /respond does not currently verify that an order is actually waiting for a customer response
-• ⏱️ There is no timeout for negotiations that receive no response
-• 📱 SMS negotiation from the original requirements is not implemented
-• 🛡️ Fraud detection is rule based rather than a trained fraud detection model
-• 🔎 Alternative product selection uses a simple similarity approach
-
-🔮 Future Improvements
-
-Potential future improvements include:
-
-• 🔐 Authentication and role based access control
-
-• 🔑 Secure customer response tokens
-
-• ⏱️ Negotiation expiration and timeout handling
-
-• 📱 SMS notifications
-
-• 🧠 More advanced product similarity matching
-
-• 🛡️ Improved fraud detection
-
-• 📧 Better customer communication templates
-
-• 🚀 Production deployment
-
-• 📊 Monitoring and logging
-
-🎓 Project Goals
-
-This project was built to gain practical experience with:
-
-• 🧠 LangGraph stateful workflows
-• 🔀 Conditional graph routing
-• 👤 Customer in the loop workflows
-• 💾 PostgreSQL checkpoint persistence
-• ⚡ FastAPI backend development
-• 🔗 SQLAlchemy database integration
-• 🔄 Alembic migrations
-• 📧 Transactional email APIs
-• 🧪 End to end API testing
-• 📋 Building an AI enabled backend system from a Business Requirements Document
-
-📜 License
-
-This project is intended for educational and portfolio purposes.
-
-
-
-
-
-
-
-
-
-
-
-
-
+    └── index.html         # Single-file dashboard (no build step)
+alembic/                # DB migrations
+scripts/                # seed.py, test_graph.py, test_e2e.py
+```
+
+## Data model
+
+- **Customer** — `id`, `name`, `email`, `phone` (optional)
+- **Product** — `id`, `name`, `price`, `stock_quantity`
+- **Order** — `id`, `customer_id`, `status` (`pending` / `flagged_for_review` / `fulfilled` / `negotiating` / `awaiting_response` / `updated` / `refunded` / `cancelled`)
+- **OrderItem** — `order_id`, `product_id`, `quantity`
+- **NegotiationOffer** — one per out-of-stock item in an order, tracks the original product, the alternative offered, and the customer's decision
+
+## Key endpoints
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/` | Redirects to `/dashboard` |
+| `GET` | `/dashboard` | Live order-monitoring dashboard (static HTML/JS) |
+| `GET` | `/health` | Plain health check |
+| `POST` | `/orders` | Create a real order and kick off the triage graph. Validates that the customer and every product exist, and that quantities are positive. |
+| `GET` | `/orders` | List all orders, including customer name (used by the dashboard table) |
+| `GET` | `/orders/{id}` | Full order detail — items with product names/prices, and any negotiation offers with both the original and alternative product names |
+| `GET` | `/respond?order_id=&decision=accept\|decline` | Resumes a paused negotiation. Called from the links inside the negotiation email. Validates `decision` is one of `accept`/`decline` and that the order exists. |
+| `POST` | `/customers` | Create a customer (checks for duplicate email) |
+| `GET` | `/products` | List all products with stock status — used to populate the demo product dropdown |
+| `GET` | `/customers` | List all customers |
+| `POST` | `/demo-order` | One-click demo endpoint — see below |
+
+## The live demo flow
+
+This is the feature a recruiter or reviewer actually uses to test the project without needing real data or backend access.
+
+On the dashboard, clicking **"Try the live demo"** opens a modal where the visitor enters:
+- **Name** and **email** (required) — used to find or create a `Customer` record
+- **Phone** (optional)
+- **Product** (optional, dropdown populated live from `GET /products`, showing each product's price and stock status) — if left on the default option, the order is placed against a product that's permanently kept out of stock in the seed data, guaranteeing the negotiation path triggers
+
+On submit, `POST /demo-order`:
+1. Finds or creates the customer
+2. Places an order for the selected (or default) product
+3. Runs the full LangGraph flow synchronously and returns the result
+
+Two distinct paths a visitor can trigger depending on what they pick:
+- **Out-of-stock product (default)** — triggers the full fraud check → inventory check → negotiation flow, and a real email arrives with working Accept/Decline links
+- **In-stock product** — skips negotiation entirely; the order goes straight to `fulfilled` with no email, showing the "happy path"
+
+## Running locally
+
+1. Clone the repo and create a virtual environment.
+2. `pip install -r requirements.txt`
+3. Copy `.env.example` to `.env` and fill in:
+   - `DATABASE_URL` — a Postgres connection string (Neon free tier works well)
+   - `BREVO_API_KEY` — from Brevo's **API keys & MCP** tab (starts with `xkeysib-`, *not* the SMTP tab's `xsmtpsib-` key — these are easy to confuse and only one works with the API client this project uses)
+4. Run migrations: `alembic upgrade head`
+5. Start the server: `uvicorn app.main:app --reload`
+6. Open `http://127.0.0.1:8000/` — you'll land on the dashboard.
+
+## Deployment
+
+The frontend and backend deploy together as a single service — FastAPI serves the dashboard directly via a `StaticFiles` mount at `/dashboard`, so there's no separate hosting step for the UI.
+
+- **Build command:** `pip install -r requirements.txt`
+- **Start command:** `alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+- **Environment variables:** `DATABASE_URL`, `BREVO_API_KEY`
+
+> **Platform note:** this app depends on a LangGraph `PostgresSaver` checkpointer that opens a persistent database connection at startup and holds it open to support the real pause/resume negotiation flow. That needs a long-running process — a standard web service — not a stateless serverless function. Platforms with short function timeouts or per-request cold-start execution (e.g. Vercel's serverless functions) are a weaker fit for the `/respond` resume step; a host built for long-running processes (such as Render) is the safer choice for that part of the flow to behave reliably.
+
+Also — the Accept/Decline links sent in negotiation emails are built from a base URL inside `app/services/email.py`. Whatever URL the app is actually reachable at, that file needs to point there, or the links in the email won't resolve for anyone testing from outside your own machine.
+
+## Known limitations (intentionally deferred for this project's current scope)
+
+- No authentication — all endpoints are open
+- `/respond` doesn't verify the order was actually awaiting a response, so it can technically be called twice
+- No timeout on stuck negotiations — an order can sit in `awaiting_response` indefinitely if a customer never clicks either link
+- Customers are only created via `POST /customers`, `/demo-order`, or seed data — there's no signup flow
+- SMS notifications are not yet implemented (email only)
+- Negotiation is bundled per order (one email covering all out-of-stock items), not per individual item
+
+## Tech stack
+
+FastAPI · LangGraph · SQLAlchemy · Alembic · PostgreSQL (Neon) · Brevo (transactional email) · Vanilla HTML/CSS/JS dashboard
