@@ -219,6 +219,13 @@ def create_demo_order(demo_data: DemoOrderCreate):
             db.add(customer)
             db.commit()
             db.refresh(customer)
+        else:
+            # Keep the customer record fresh with whatever name/phone was typed this time
+            customer.name = demo_data.name
+            if demo_data.phone:
+                customer.phone = demo_data.phone
+            db.commit()
+            db.refresh(customer)
 
         DEFAULT_DEMO_PRODUCT_ID = 2  # Limited Edition Hoodie — kept permanently out of stock
 
@@ -256,24 +263,6 @@ def create_demo_order(demo_data: DemoOrderCreate):
             "email_sent_to": demo_data.email,
             "graph_result": result,
         }
-    finally:
-        db.close()
-        
-
-@app.get("/products")
-def list_products():
-    db = SessionLocal()
-    try:
-        products = db.query(Product).all()
-        return [
-            {
-                "id": p.id,
-                "name": p.name,
-                "price": p.price,
-                "stock_quantity": p.stock_quantity,
-            }
-            for p in products
-        ]
     finally:
         db.close()
 
