@@ -1,5 +1,6 @@
 from pydantic import BaseModel
 from typing import List
+from typing import Optional
 
 
 class OrderItemCreate(BaseModel):
@@ -21,3 +22,5 @@ class CustomerCreate(BaseModel):
 class DemoOrderCreate(BaseModel):
     name: str
     email: str
+    phone: Optional[str] = None
+    product_id: Optional[int] = None

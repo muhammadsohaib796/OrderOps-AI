@@ -202,27 +202,38 @@ def create_customer(customer_data: CustomerCreate):
 @app.post("/demo-order")
 def create_demo_order(demo_data: DemoOrderCreate):
     """
-    One-click demo: find-or-create a customer, then place an order for the
-    Limited Edition Hoodie (always out of stock in seed data), guaranteeing
-    the full negotiation + email flow triggers.
+    One-click demo: find-or-create a customer, then place an order.
+    If no product_id is given, defaults to the Limited Edition Hoodie
+    (always out of stock in seed data), guaranteeing the full
+    negotiation + email flow triggers.
     """
     db = SessionLocal()
     try:
         customer = db.query(Customer).filter(Customer.email == demo_data.email).first()
         if not customer:
-            customer = Customer(name=demo_data.name, email=demo_data.email, phone=None)
+            customer = Customer(
+                name=demo_data.name,
+                email=demo_data.email,
+                phone=demo_data.phone,
+            )
             db.add(customer)
             db.commit()
             db.refresh(customer)
 
-        DEMO_PRODUCT_ID = 2  # Limited Edition Hoodie — kept permanently out of stock for demos
+        DEFAULT_DEMO_PRODUCT_ID = 2  # Limited Edition Hoodie — kept permanently out of stock
+
+        product_id = demo_data.product_id or DEFAULT_DEMO_PRODUCT_ID
+
+        product = db.get(Product, product_id)
+        if not product:
+            raise HTTPException(status_code=404, detail=f"Product {product_id} not found")
 
         new_order = Order(customer_id=customer.id, status=OrderStatus.pending)
         db.add(new_order)
         db.commit()
         db.refresh(new_order)
 
-        db.add(OrderItem(order_id=new_order.id, product_id=DEMO_PRODUCT_ID, quantity=1))
+        db.add(OrderItem(order_id=new_order.id, product_id=product.id, quantity=1))
         db.commit()
 
         config = {"configurable": {"thread_id": str(new_order.id)}}
@@ -241,12 +252,46 @@ def create_demo_order(demo_data: DemoOrderCreate):
         return {
             "order_id": new_order.id,
             "customer_id": customer.id,
+            "product_used": product.name,
             "email_sent_to": demo_data.email,
             "graph_result": result,
         }
     finally:
         db.close()
+        
+
+@app.get("/products")
+def list_products():
+    db = SessionLocal()
+    try:
+        products = db.query(Product).all()
+        return [
+            {
+                "id": p.id,
+                "name": p.name,
+                "price": p.price,
+                "stock_quantity": p.stock_quantity,
+            }
+            for p in products
+        ]
+    finally:
+        db.close()
 
 
+@app.get("/customers")
+def list_customers():
+    db = SessionLocal()
+    try:
+        customers = db.query(Customer).all()
+        return [
+            {
+                "id": c.id,
+                "name": c.name,
+                "email": c.email,
+            }
+            for c in customers
+        ]
+    finally:
+        db.close()
 
 app.mount("/dashboard", StaticFiles(directory="app/static", html=True), name="dashboard")
